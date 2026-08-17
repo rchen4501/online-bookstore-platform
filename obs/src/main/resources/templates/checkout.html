@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/thymeleaf-extras-springsecurity6">
+<head>
+    <title>Checkout - Online Bookstore</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom Global Styles -->
+    <link rel="stylesheet" th:href="@{/css/global.css}" />
+    <!-- Stripe.js -->
+    <script src="https://js.stripe.com/v3/"></script>
+    <style>
+        .checkout-container {
+            max-width: 900px;
+            margin: 30px auto;
+        }
+        .checkout-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .section-title {
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .order-summary {
+            background-color: #f9f9f9;
+        }
+        .item-row {
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .totals {
+            margin-top: 20px;
+            font-weight: bold;
+        }
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+        }
+        .grand-total {
+            font-size: 1.2em;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 2px solid #ddd;
+        }
+        .quantity-controls {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .quantity-btn {
+            width: 30px;
+            height: 30px;
+            padding: 0;
+            font-size: 14px;
+        }
+        .quantity-input {
+            width: 50px;
+            text-align: center;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            padding: 2px;
+        }
+        .saved-card {
+            background-color: #e8f5e8;
+            border: 1px solid #28a745;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="/">Online Bookstore</a>
+            <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav mr-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/search">Search</a>
+                    </li>
+                </ul>
+                <ul class="navbar-nav">
+                    <li class="nav-item" sec:authorize="!isAuthenticated()">
+                        <a class="nav-link" href="/register">Register</a>
+                    </li>
+                    <li class="nav-item" sec:authorize="!isAuthenticated()">
+                        <a class="nav-link" href="/login"><i class="fas fa-sign-in-alt"></i> Login</a>
+                    </li>
+                    <li class="nav-item" sec:authorize="isAuthenticated()">
+                        <a class="nav-link" href="/profile"><i class="fas fa-user-circle"></i> Profile</a>
+                    </li>
+                    <li class="nav-item" sec:authorize="hasRole('ADMIN')">
+                        <a class="nav-link" href="/admin/books"><i class="fas fa-cog"></i> Admin</a>
+                    </li>
+                    <li class="nav-item" sec:authorize="isAuthenticated()">
+                        <form th:action="@{/logout}" method="post" style="display: inline;">
+                            <button type="submit" class="btn btn-link nav-link"><i class="fas fa-sign-out-alt"></i> Logout</button>
+                        </form>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/cart">
+                            <i class="fas fa-shopping-cart"></i> Cart
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="checkout-container">
+        <h1 class="mb-4">Checkout</h1>
+        
+        <form th:action="@{/checkout/process}" method="post">
+            <div class="row">
+                <!-- Left Column - Customer Information -->
+                <div class="col-md-7">
+                    <!-- Shipping Address Section -->
+                    <div class="checkout-section">
+                        <h3 class="section-title">Shipping Address</h3>
+                        <div class="form-group">
+                            <label for="address">Shipping Address</label>
+                            <textarea class="form-control" id="address" name="address" rows="3" 
+                                      th:text="${user != null && user.address != null ? user.address : ''}" required></textarea>
+                        </div>
+                    </div>
+                    
+                    <!-- Payment Information Section -->
+                    <div class="checkout-section">
+                        <h3 class="section-title">Payment Information</h3>
+                        
+                        <!-- Display saved payment info if available -->
+                        <div th:if="${hasPaymentInfo}" class="saved-card">
+                            <div class="d-flex align-items-center mb-2">
+                                <i class="fas fa-credit-card text-success mr-2"></i>
+                                <h5 class="mb-0">Saved Payment Method</h5>
+                            </div>
+                            <p class="mb-2">
+                                <i class="fas fa-lock text-muted mr-1"></i>
+                                <span th:text="${user.paymentInfo}"></span>
+                            </p>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="useSavedPayment" name="useSavedPayment" checked>
+                                <label class="form-check-label" for="useSavedPayment">
+                                    <strong>Use this payment method</strong>
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div th:if="${hasPaymentInfo}">
+                            <p class="text-muted"><small>Or enter new payment information below:</small></p>
+                        </div>
+                        
+                        <!-- Credit Card Information -->
+                        <div id="card-payment-section">
+                            <div class="form-group">
+                                <label for="paymentInfo">Credit Card Number</label>
+                                <input type="text" class="form-control" id="paymentInfo" name="paymentInfo" 
+                                       placeholder="1234 5678 9012 3456">
+                            </div>
+                            
+                            <div class="form-row">
+                                <div class="form-group col-md-6">
+                                    <label for="expiryDate">Expiry Date</label>
+                                    <input type="text" class="form-control" id="expiryDate" name="expiryDate" 
+                                           placeholder="MM/YY">
+                                </div>
+                                <div class="form-group col-md-6">
+                                    <label for="cvv">CVV</label>
+                                    <input type="text" class="form-control" id="cvv" name="cvv" 
+                                           placeholder="123">
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="cardholderName">Cardholder Name</label>
+                                <input type="text" class="form-control" id="cardholderName" name="cardholderName" 
+                                       placeholder="John Doe">
+                            </div>
+                            
+                            <!-- Test Card Information -->
+                            <div class="alert alert-info">
+                                <h6><i class="fas fa-info-circle"></i> For testing, you can use:</h6>
+                                <strong>Card Number:</strong> 4242 4242 4242 4242<br>
+                                <strong>Expiry:</strong> 12/28<br>
+                                <strong>CVC:</strong> 123<br>
+                                <strong>Name:</strong> Test User
+                            </div>
+                        </div>
+                        
+                        <!-- Save Information Option -->
+                        <div class="form-check mt-3" sec:authorize="isAuthenticated()">
+                            <input class="form-check-input" type="checkbox" id="saveInfo" name="saveInfo">
+                            <label class="form-check-label" for="saveInfo">Save this information for future purchases</label>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Right Column - Order Summary -->
+                <div class="col-md-5">
+                    <div class="checkout-section order-summary">
+                        <h3 class="section-title">Order Summary</h3>
+                        
+                        <!-- Order Items with Quantity Controls -->
+                        <div class="item-row" th:each="item, iterStat : ${cartItems}">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="flex-grow-1">
+                                    <strong th:text="${item.title}"></strong>
+                                    <div class="text-muted small">$<span th:text="${item.price}"></span> each</div>
+                                </div>
+                                <div class="text-right">$<span th:text="${item.subtotal}" class="item-subtotal"></span></div>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="quantity-controls">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary quantity-btn" 
+                                            onclick="updateQuantity(this, -1)" data-book-id="[[${item.book.id}]]">-</button>
+                                    <input type="number" class="quantity-input" th:value="${item.quantity}" 
+                                           min="1" max="99" onchange="updateQuantityDirect(this)" 
+                                           data-book-id="[[${item.book.id}]]" data-price="[[${item.price}]]">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary quantity-btn" 
+                                            onclick="updateQuantity(this, 1)" data-book-id="[[${item.book.id}]]">+</button>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-danger" onclick="removeItem(this)" 
+                                        data-book-id="[[${item.book.id}]]">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Order Totals -->
+                        <div class="totals">
+                            <div class="total-row">
+                                <span>Subtotal:</span>
+                                <span>$<span id="subtotal-amount" th:text="${#numbers.formatDecimal(subtotal, 1, 2)}"></span></span>
+                            </div>
+                            
+                            <!-- Promo Code Section -->
+                            <div class="promo-code-section mt-3 mb-3">
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="promoCodeInput" name="promoCode" 
+                                           placeholder="Enter promo code (e.g., SAVE20)" maxlength="20" style="text-transform: uppercase;">
+                                    <div class="input-group-append">
+                                        <button type="button" class="btn btn-outline-primary" id="applyPromoBtn">
+                                            <i class="fas fa-tag"></i> Apply
+                                        </button>
+                                    </div>
+                                </div>
+                                <div id="promoMessage" class="mt-2" style="display: none;"></div>
+                            </div>
+                            
+                            <!-- Discount Row (hidden by default) -->
+                            <div class="total-row discount-row" id="discountRow" style="display: none; color: #28a745;">
+                                <span>Discount <span id="discountPercent"></span>:</span>
+                                <span>-$<span id="discount-amount">0.00</span></span>
+                            </div>
+                            
+                            <div class="total-row">
+                                <span>Tax (8%):</span>
+                                <span>$<span id="tax-amount" th:text="${#numbers.formatDecimal(tax, 1, 2)}"></span></span>
+                            </div>
+                            <div class="total-row grand-total">
+                                <span>Total:</span>
+                                <span>$<span id="total-amount" th:text="${#numbers.formatDecimal(total, 1, 2)}"></span></span>
+                            </div>
+                        </div>
+                        
+                        <!-- Place Order Button -->
+                        <button type="submit" class="btn btn-success btn-lg btn-block mt-4" id="placeOrderBtn">
+                            <span class="spinner-border spinner-border-sm d-none mr-2" role="status" id="orderSpinner"></span>
+                            <span id="orderButtonText">Place Order</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function updateQuantity(button, change) {
+            const input = button.parentElement.querySelector('.quantity-input');
+            let newQuantity = parseInt(input.value) + change;
+            if (newQuantity < 1) newQuantity = 1;
+            if (newQuantity > 99) newQuantity = 99;
+            input.value = newQuantity;
+            updateItemSubtotal(input);
+            recalculateTotals();
+        }
+        
+        function updateQuantityDirect(input) {
+            let quantity = parseInt(input.value);
+            if (quantity < 1) {
+                quantity = 1;
+                input.value = 1;
+            }
+            if (quantity > 99) {
+                quantity = 99;
+                input.value = 99;
+            }
+            updateItemSubtotal(input);
+            recalculateTotals();
+        }
+        
+        function updateItemSubtotal(input) {
+            const quantity = parseInt(input.value);
+            const price = parseFloat(input.dataset.price);
+            const subtotal = (quantity * price).toFixed(2);
+            const itemRow = input.closest('.item-row');
+            const subtotalSpan = itemRow.querySelector('.item-subtotal');
+            subtotalSpan.textContent = subtotal;
+        }
+        
+        function removeItem(button) {
+            const itemRow = button.closest('.item-row');
+            itemRow.remove();
+            recalculateTotals();
+        }
+        
+        function recalculateTotals() {
+            let subtotal = 0;
+            document.querySelectorAll('.item-subtotal').forEach(span => {
+                subtotal += parseFloat(span.textContent);
+            });
+            
+            // Get current discount
+            const discountAmount = parseFloat(document.getElementById('discount-amount').textContent) || 0;
+            const discountedSubtotal = subtotal - discountAmount;
+            
+            const tax = discountedSubtotal * 0.08;
+            const total = discountedSubtotal + tax;
+            
+            document.getElementById('subtotal-amount').textContent = subtotal.toFixed(2);
+            document.getElementById('tax-amount').textContent = tax.toFixed(2);
+            document.getElementById('total-amount').textContent = total.toFixed(2);
+        }
+        
+        // Promo Code Functionality
+        let appliedPromoCode = null;
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            const promoInput = document.getElementById('promoCodeInput');
+            const applyBtn = document.getElementById('applyPromoBtn');
+            const promoMessage = document.getElementById('promoMessage');
+            
+            // Auto-uppercase promo code input
+            promoInput.addEventListener('input', function() {
+                this.value = this.value.toUpperCase();
+            });
+            
+            // Apply promo code on button click
+            applyBtn.addEventListener('click', function() {
+                const promoCode = promoInput.value.trim();
+                if (promoCode) {
+                    validatePromoCode(promoCode);
+                }
+            });
+            
+            // Apply promo code on Enter key
+            promoInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const promoCode = this.value.trim();
+                    if (promoCode) {
+                        validatePromoCode(promoCode);
+                    }
+                }
+            });
+        });
+        
+        function validatePromoCode(promoCode) {
+            const applyBtn = document.getElementById('applyPromoBtn');
+            const promoMessage = document.getElementById('promoMessage');
+            
+            // Show loading state
+            applyBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking...';
+            applyBtn.disabled = true;
+            promoMessage.style.display = 'none';
+            
+            // Send AJAX request to validate promo code
+            $.get('/checkout/validate-promo-code', { promoCode: promoCode })
+                .done(function(response) {
+                    if (response.success) {
+                        // Apply the discount
+                        applyDiscount(response.discount, response.discountPercentage, promoCode);
+                        showPromoMessage(response.message, 'success');
+                        appliedPromoCode = promoCode;
+                        
+                        // Disable input and change button to "Remove"
+                        document.getElementById('promoCodeInput').disabled = true;
+                        applyBtn.innerHTML = '<i class="fas fa-times"></i> Remove';
+                        applyBtn.className = 'btn btn-outline-danger';
+                        applyBtn.onclick = removePromoCode;
+                    } else {
+                        showPromoMessage(response.message, 'error');
+                    }
+                })
+                .fail(function() {
+                    showPromoMessage('Error validating promo code. Please try again.', 'error');
+                })
+                .always(function() {
+                    if (appliedPromoCode === null) {
+                        applyBtn.innerHTML = '<i class="fas fa-tag"></i> Apply';
+                        applyBtn.disabled = false;
+                    }
+                });
+        }
+        
+        function applyDiscount(discount, percentage, promoCode) {
+            const discountRow = document.getElementById('discountRow');
+            const discountAmount = document.getElementById('discount-amount');
+            const discountPercent = document.getElementById('discountPercent');
+            
+            discountAmount.textContent = discount.toFixed(2);
+            discountPercent.textContent = `(${percentage}%)`;
+            discountRow.style.display = 'flex';
+            
+            // Recalculate totals with discount
+            recalculateTotals();
+        }
+        
+        function removePromoCode() {
+            // Reset discount
+            document.getElementById('discountRow').style.display = 'none';
+            document.getElementById('discount-amount').textContent = '0.00';
+            
+            // Reset input and button
+            const promoInput = document.getElementById('promoCodeInput');
+            const applyBtn = document.getElementById('applyPromoBtn');
+            const promoMessage = document.getElementById('promoMessage');
+            
+            promoInput.disabled = false;
+            promoInput.value = '';
+            applyBtn.innerHTML = '<i class="fas fa-tag"></i> Apply';
+            applyBtn.className = 'btn btn-outline-primary';
+            applyBtn.onclick = null;
+            promoMessage.style.display = 'none';
+            
+            appliedPromoCode = null;
+            
+            // Recalculate totals without discount
+            recalculateTotals();
+        }
+        
+        function showPromoMessage(message, type) {
+            const promoMessage = document.getElementById('promoMessage');
+            promoMessage.textContent = message;
+            promoMessage.className = `mt-2 alert alert-${type === 'success' ? 'success' : 'danger'}`;
+            promoMessage.style.display = 'block';
+        }
+        
+        // Form submission handling
+        document.addEventListener('DOMContentLoaded', function() {
+            const checkoutForm = document.querySelector('form[action*="/checkout/process"]');
+            if (checkoutForm) {
+                checkoutForm.addEventListener('submit', handleFormSubmit);
+            }
+        });
+        
+        function handleFormSubmit(e) {
+            const button = document.getElementById('placeOrderBtn');
+            const spinner = document.getElementById('orderSpinner');
+            const buttonText = document.getElementById('orderButtonText');
+            
+            // Show loading state
+            button.disabled = true;
+            spinner.classList.remove('d-none');
+            buttonText.textContent = 'Processing...';
+            
+            // Let form submit normally - remove any preventDefault
+            return true;
+        }
+    </script>
+</body>
+</html> 
